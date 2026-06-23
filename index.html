@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>HR Calendar System</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+body {
+    margin: 0;
+    font-family: Arial;
+    background: #0b1220;
+    color: white;
+}
+
+h1 {
+    text-align: center;
+    padding: 10px;
+}
+
+.top {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    padding: 10px;
+}
+
+input {
+    padding: 10px;
+    border-radius: 8px;
+    border: none;
+    width: 250px;
+}
+
+button {
+    border: none;
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.add { background: #22c55e; color: white; }
+
+.employee {
+    margin: 20px;
+    background: #111a2e;
+    border-radius: 12px;
+    padding: 10px;
+}
+
+.nameBar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 10px;
+    font-weight: bold;
+}
+
+.pdf { background: #3b82f6; color: white; }
+.del { background: #ef4444; color: white; }
+
+.calendar {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 5px;
+    padding: 10px;
+}
+
+.day {
+    height: 80px;
+    background: #16233d;
+    border-radius: 8px;
+    padding: 5px;
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+}
+
+.headerDay {
+    background: #1f2a44;
+    height: 30px;
+    font-weight: bold;
+    cursor: default;
+}
+
+.present {
+    background: rgba(34,197,94,0.25);
+}
+
+.absent {
+    background: rgba(239,68,68,0.15);
+}
+
+.muted {
+    background: transparent;
+}
+</style>
+</head>
+
+<body>
+
+<h1>📅 HR Calendar System</h1>
+
+<div class="top">
+    <input id="name" placeholder="Employee name">
+    <button class="add" onclick="addEmployee()">Add Employee</button>
+</div>
+
+<div id="container"></div>
+
+<script>
+
+let employees = JSON.parse(localStorage.getItem("employees")) || [];
+
+const year = new Date().getFullYear();
+const month = 5; // June
+const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+function save() {
+    localStorage.setItem("employees", JSON.stringify(employees));
+}
+
+function getDay(emp, dateKey) {
+    if (!emp.days[dateKey]) {
+        emp.days[dateKey] = { in: null, out: null };
+    }
+    return emp.days[dateKey];
+}
+
+/* ADD */
+function addEmployee() {
+    let name = document.getElementById("name").value.trim();
+    if (!name) return;
+
+    employees.push({ name, days: {} });
+    document.getElementById("name").value = "";
+    save();
+    render();
+}
+
+/* MARK */
+function mark(i, dateKey) {
+    let day = getDay(employees[i], dateKey);
+
+    if (!day.in) {
+        day.in = new Date().toLocaleTimeString();
+    } else if (!day.out) {
+        day.out = new Date().toLocaleTimeString();
+    } else {
+        day.in = null;
+        day.out = null;
+    }
+
+    save();
+    render();
+}
+
+/* DELETE */
+function del(i) {
+    if (!confirm("Delete employee?")) return;
+    employees.splice(i, 1);
+    save();
+    render();
+}
+
+/* PDF WITH WEEKEND CLAUSE */
+function pdf(i) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    let e = employees[i];
+
+    doc.text("Attendance Report", 10, 10);
+    doc.text("Name: " + e.name, 10, 18);
+
+    let y = 30;
+    let total = 0;
+
+    for (let d = 1; d <= daysInMonth; d++) {
+
+        let dateObj = new Date(year, month, d);
+        let dateStr = dateObj.toDateString();
+        let dayOfWeek = dateObj.getDay(); // 0 Sun, 6 Sat
+
+        let day = e.days[dateStr];
+
+        let line = `${dateStr}: `;
+
+        // WEEKEND CHECK
+        let isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+
+        if (isWeekend && (!day || (!day.in && !day.out))) {
+            line += "WEEKEND";
+        }
+        else if (day && day.in) {
+            total++;
+            line += `IN ${day.in} | OUT ${day.out || "-"}`;
+        }
+        else {
+            line += "ABSENT";
+        }
+
+        doc.text(line, 10, y);
+        y += 7;
+
+        if (y > 270) {
+            doc.addPage();
+            y = 10;
+        }
+    }
+
+    doc.text("Total Present Days: " + total, 10, y + 10);
+
+    doc.save(e.name + "_report.pdf");
+}
+
+/* CALENDAR */
+function buildCalendar(emp, index) {
+
+    const start = new Date(year, month, 1).getDay();
+    const adjustedStart = (start === 0) ? 6 : start - 1;
+
+    let html = `
+    <div class="calendar">
+        <div class="day headerDay">Mon</div>
+        <div class="day headerDay">Tue</div>
+        <div class="day headerDay">Wed</div>
+        <div class="day headerDay">Thu</div>
+        <div class="day headerDay">Fri</div>
+        <div class="day headerDay">Sat</div>
+        <div class="day headerDay">Sun</div>
+    `;
+
+    for (let i = 0; i < adjustedStart; i++) {
+        html += `<div class="day muted"></div>`;
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+
+        let dateKey = new Date(year, month, d).toDateString();
+        let day = emp.days[dateKey];
+
+        let present = day && day.in;
+
+        html += `
+        <div class="day ${present ? 'present' : 'absent'}"
+             onclick="mark(${index}, '${dateKey}')">
+
+            <div><b>${d}</b></div>
+            <div style="font-size:11px;color:#60a5fa;">
+                IN: ${day?.in || "-"}
+            </div>
+            <div style="font-size:11px;color:#f87171;">
+                OUT: ${day?.out || "-"}
+            </div>
+
+        </div>`;
+    }
+
+    html += `</div>`;
+    return html;
+}
+
+/* RENDER */
+function render() {
+
+    let container = document.getElementById("container");
+    container.innerHTML = "";
+
+    employees.forEach((e, i) => {
+
+        container.innerHTML += `
+        <div class="employee">
+
+            <div class="nameBar">
+                <div>${e.name}</div>
+                <div>
+                    <button class="pdf" onclick="pdf(${i})">PDF</button>
+                    <button class="del" onclick="del(${i})">X</button>
+                </div>
+            </div>
+
+            ${buildCalendar(e, i)}
+
+        </div>`;
+    });
+}
+
+render();
+
+</script>
+
+</body>
+</html>
